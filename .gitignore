@@ -1,0 +1,9 @@
+omoda-competition/.env.local
+omoda-competition/node_modules/
+omoda-competition/functions/node_modules/
+omoda-competition/dist/
+omoda-competition/functions/lib/
+*.log
+omoda-competition/*.tsbuildinfo
+package-lock.json
+.firebase/
