@@ -8,7 +8,7 @@ import type { Competition } from "@/types";
 type Step = "eligibility" | "payment" | "redirecting";
 
 interface CreateEntrySessionResponse {
-  entryId: string;
+  paymentId: string;
   checkoutUrl: string;
   formFields?: Record<string, string>;
 }

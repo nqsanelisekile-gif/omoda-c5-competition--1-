@@ -45,11 +45,18 @@ export default function AdminCompetitions() {
     // gated purely by role, not by an external system of record.
     await addDoc(collection(db, "competitions"), {
       title: form.get("title"),
+      name: form.get("title"),
       description: form.get("description"),
+      prize: form.get("carModel"),
       carModel: form.get("carModel"),
       images: imageUrl ? [imageUrl] : [],
       entryFeeCents: Number(form.get("entryFeeCents")) || 10000,
+      entryPrice: Number(form.get("entryFeeCents")) || 10000,
+      currency: "ZAR",
+      startDate: Date.now(),
       closingAt: new Date(form.get("closingAt") as string).getTime(),
+      endDate: new Date(form.get("closingAt") as string).getTime(),
+      totalEntries: 0,
       status: "draft" as CompetitionStatus,
       rulesText: form.get("rulesText"),
       freeEntryMethod: null,

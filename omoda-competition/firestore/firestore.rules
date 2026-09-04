@@ -15,7 +15,18 @@ service cloud.firestore {
       allow read: if isSignedIn() && (
         request.auth.uid == userId || isAdmin()
       );
-      allow create, update: if isSignedIn() && request.auth.uid == userId;
+      allow create: if isSignedIn() && request.auth.uid == userId &&
+        request.resource.data.uid == userId &&
+        request.resource.data.role == 'user' &&
+        request.resource.data.entriesCount == 0 &&
+        request.resource.data.keys().hasAll([
+          'uid', 'email', 'firstName', 'lastName', 'displayName', 'phone',
+          'role', 'createdAt', 'updatedAt', 'entriesCount'
+        ]);
+      allow update: if isSignedIn() && request.auth.uid == userId &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'email', 'firstName', 'lastName', 'displayName', 'phone', 'updatedAt'
+        ]);
       allow delete: if isAdmin();
     }
 
@@ -40,6 +51,10 @@ service cloud.firestore {
       );
       allow update: if isAdmin();
       allow delete: if isAdmin();
+    }
+
+    match /entryCodes/{code} {
+      allow read, write: if false;
     }
 
     match /faqs/{faqId} {

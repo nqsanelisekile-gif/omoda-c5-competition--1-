@@ -59,7 +59,8 @@ export default function MyAccount() {
             <table className="w-full min-w-[500px] text-left text-sm">
               <thead>
                 <tr className="border-b border-steel text-xs uppercase tracking-widest2 text-silver">
-                  <th className="py-3 pr-4">Reference</th>
+                  <th className="py-3 pr-4">Competition</th>
+                  <th className="py-3 pr-4">Entry Code</th>
                   <th className="py-3 pr-4">Status</th>
                   <th className="py-3 pr-4">Method</th>
                   <th className="py-3">Date</th>
@@ -68,7 +69,8 @@ export default function MyAccount() {
               <tbody>
                 {entries.map((e) => (
                   <tr key={e.id} className="border-b border-steel/50">
-                    <td className="py-3 pr-4 font-mono">{e.referenceNumber ?? "—"}</td>
+                    <td className="py-3 pr-4">{e.competitionName ?? e.competitionId}</td>
+                    <td className="py-3 pr-4 font-mono">{e.uniqueCode ?? "—"}</td>
                     <td className="py-3 pr-4">
                       <StatusPill status={e.status} />
                     </td>

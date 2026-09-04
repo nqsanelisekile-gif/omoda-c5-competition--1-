@@ -6,8 +6,15 @@
 export interface Competition {
   id: string;
   title: string;
+  name?: string;
+  prize?: string;
   entryFeeCents: number;
+  entryPrice?: number;
+  currency?: string;
+  startDate?: number;
   closingAt: number;
+  endDate?: number;
+  totalEntries?: number;
   status: "draft" | "active" | "closed" | "winner_announced";
   isActive?: boolean;
 }

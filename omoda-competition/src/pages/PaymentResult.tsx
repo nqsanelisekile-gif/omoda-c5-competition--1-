@@ -4,55 +4,67 @@ import { doc, onSnapshot } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, functions } from "@/firebase/config";
 import { useAuth } from "@/contexts/AuthContext";
-import type { Entry } from "@/types";
+import type { Entry, Payment } from "@/types";
 
 /**
- * The PSP redirects here after checkout (success or cancel) with an
- * entryId query param. IMPORTANT: this page never trusts the redirect
- * itself as proof of payment — it listens to the /entries/{id} document,
- * which only the verified webhook Cloud Function can update to "paid".
+ * The PSP redirects here after checkout (success or cancel) with a
+ * paymentId query param. IMPORTANT: this page never trusts the redirect
+ * itself as proof of payment — it listens to the /payments/{id} document,
+ * then follows the server-created entry after the verified webhook marks
+ * the payment succeeded.
  * If the user closes this tab before the webhook fires, the entry will
  * still update correctly in My Account once it does.
  */
 export default function PaymentResult() {
   const [params] = useSearchParams();
-  const entryId = params.get("entryId");
+  const paymentId = params.get("paymentId");
   const cancelled = params.get("cancelled") === "1";
   const failed = params.get("failed") === "1";
   const { firebaseUser } = useAuth();
+  const [payment, setPayment] = useState<Payment | null>(null);
   const [entry, setEntry] = useState<Entry | null>(null);
   const [waited, setWaited] = useState(false);
 
   useEffect(() => {
-    if (!entryId) return;
+    if (!paymentId) return;
     if (cancelled && firebaseUser) {
-      const cancelPayment = httpsCallable<{ entryId: string }, { ok: boolean }>(
+      const cancelPayment = httpsCallable<{ paymentId: string }, { ok: boolean }>(
         functions,
         "cancelEntryPayment"
       );
-      void cancelPayment({ entryId });
+      void cancelPayment({ paymentId });
     }
     if (failed && firebaseUser) {
-      const failPayment = httpsCallable<{ entryId: string }, { ok: boolean }>(
+      const failPayment = httpsCallable<{ paymentId: string }, { ok: boolean }>(
         functions,
         "failEntryPayment"
       );
-      void failPayment({ entryId });
+      void failPayment({ paymentId });
     }
-    const unsub = onSnapshot(doc(db, "entries", entryId), (snap) => {
-      if (snap.exists()) setEntry({ id: snap.id, ...(snap.data() as Omit<Entry, "id">) });
+    let unsubscribeEntry: () => void = () => undefined;
+    const unsubscribePayment = onSnapshot(doc(db, "payments", paymentId), (snap) => {
+      if (!snap.exists()) return;
+      const nextPayment = { id: snap.id, ...(snap.data() as Omit<Payment, "id">) };
+      setPayment(nextPayment);
+      if (nextPayment.entryId) {
+        unsubscribeEntry();
+        unsubscribeEntry = onSnapshot(doc(db, "entries", nextPayment.entryId), (entrySnap) => {
+          if (entrySnap.exists()) setEntry({ id: entrySnap.id, ...(entrySnap.data() as Omit<Entry, "id">) });
+        });
+      }
     });
     const t = setTimeout(() => setWaited(true), 8000);
     return () => {
-      unsub();
+      unsubscribePayment();
+      unsubscribeEntry();
       clearTimeout(t);
     };
-  }, [cancelled, entryId, failed, firebaseUser]);
+  }, [cancelled, failed, firebaseUser, paymentId]);
 
   return (
     <div className="container-page flex min-h-[70vh] items-center justify-center py-16">
       <div className="panel max-w-lg p-10 text-center">
-        {!entry && (
+        {!payment && (
           <>
             <p className="eyebrow">Confirming Payment</p>
             <h1 className="mt-3 text-2xl">Please wait…</h1>
@@ -86,7 +98,7 @@ export default function PaymentResult() {
           </>
         )}
 
-        {entry?.status === "failed" && (
+        {(entry?.status === "failed" || payment?.status === "failed") && (
           <>
             <p className="eyebrow">Payment Failed</p>
             <h1 className="mt-3 text-2xl">Something Went Wrong</h1>
@@ -100,7 +112,7 @@ export default function PaymentResult() {
           </>
         )}
 
-        {entry?.status === "cancelled" && (
+        {payment?.status === "cancelled" && (
           <>
             <p className="eyebrow">Payment Cancelled</p>
             <h1 className="mt-3 text-2xl">Your Entry Was Not Paid</h1>
@@ -113,7 +125,17 @@ export default function PaymentResult() {
           </>
         )}
 
-        {entry?.status === "pending" && waited && (
+        {payment?.status === "succeeded" && !entry && (
+          <>
+            <p className="eyebrow">Finalizing Entry</p>
+            <h1 className="mt-3 text-2xl">Payment Verified</h1>
+            <p className="mt-4 text-sm text-silver">
+              Your unique entry code is being generated. This usually takes only a moment.
+            </p>
+          </>
+        )}
+
+        {payment?.status === "initiated" && waited && (
           <p className="mt-4 text-sm text-silver">
             Your payment is still being verified. Check{" "}
             <Link to="/account" className="text-ignition underline">My Account</Link> in a

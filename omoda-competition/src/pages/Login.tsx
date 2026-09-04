@@ -6,7 +6,9 @@ export default function Login() {
   const [mode, setMode] = useState<"signIn" | "signUp">("signIn");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [displayName, setDisplayName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [phone, setPhone] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -23,7 +25,7 @@ export default function Login() {
       if (mode === "signIn") {
         await signIn(email, password);
       } else {
-        await signUp(email, password, displayName);
+        await signUp(email, password, firstName, lastName, phone);
       }
       navigate(from, { replace: true });
     } catch (err) {
@@ -45,16 +47,24 @@ export default function Login() {
 
         <form onSubmit={handleSubmit} className="panel mt-8 space-y-5 p-8">
           {mode === "signUp" && (
-            <Field label="Full Name">
-              <input
-                required
-                type="text"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                className="input"
-                autoComplete="name"
-              />
-            </Field>
+            <>
+              <Field label="First Name">
+                <input
+                  required
+                  type="text"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  className="input"
+                  autoComplete="given-name"
+                />
+              </Field>
+              <Field label="Last Name">
+                <input required type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} className="input" autoComplete="family-name" />
+              </Field>
+              <Field label="Phone">
+                <input required type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} className="input" autoComplete="tel" />
+              </Field>
+            </>
           )}
           <Field label="Email">
             <input

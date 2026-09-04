@@ -5,6 +5,7 @@ import { logger } from "firebase-functions/v2";
 import { db } from "./admin";
 import { createYocoProvider } from "./providers/yoco";
 import { createPayFastProvider, payFastValidationUrl } from "./providers/payfast";
+import { createEntryCode, EntryCodeCollision } from "./entryCode";
 import { generateReferenceNumber } from "./referenceNumber";
 import type { Competition } from "./sharedTypes";
 
@@ -17,9 +18,23 @@ const APP_BASE_URL = process.env.APP_BASE_URL;
 const PAYMENT_PROVIDER = process.env.PAYMENT_PROVIDER ?? "yoco";
 const PAYFAST_SANDBOX = process.env.PAYFAST_SANDBOX === "true";
 const FUNCTION_REGION = "europe-west1";
+const configuredAppOrigin = (() => {
+  try {
+    return process.env.APP_BASE_URL ? new URL(process.env.APP_BASE_URL).origin : null;
+  } catch {
+    return null;
+  }
+})();
+const FUNCTION_CORS_ORIGINS = [
+  "http://localhost:5173",
+  "http://localhost:5174",
+  "https://drivemydream-75f83.web.app",
+  "https://drivemydream-75f83.firebaseapp.com",
+  ...(configuredAppOrigin ? [configuredAppOrigin] : []),
+];
 
 export const getActiveCompetition = onCall(
-  { region: FUNCTION_REGION },
+  { region: FUNCTION_REGION, cors: FUNCTION_CORS_ORIGINS },
   async () => {
     const snapshot = await db.collection("competitions").get();
     const active = snapshot.docs.find((document) => {
@@ -46,13 +61,13 @@ export const getActiveCompetition = onCall(
  * Sequence:
  *  1. Verify caller is authenticated.
  *  2. Verify the competition exists and is "active".
- *  3. Create /entries doc with status "pending" (server sets createdAt).
- *  4. Create /payments doc with status "initiated".
- *  5. Ask the PSP for a hosted checkout URL, tagged with our paymentId.
+ *  3. Create a /payments doc with status "initiated".
+ *  4. Ask the PSP for a hosted checkout URL.
+ *  5. Create the paid /entries doc only after the verified webhook.
  *  6. Return the checkout URL — client just redirects, does nothing else.
  */
 export const createEntrySession = onCall(
-  { region: FUNCTION_REGION, secrets: [YOCO_SECRET_KEY, YOCO_WEBHOOK_SECRET, PAYFAST_MERCHANT_ID, PAYFAST_MERCHANT_KEY, PAYFAST_PASSPHRASE] },
+  { region: FUNCTION_REGION, cors: FUNCTION_CORS_ORIGINS, secrets: [YOCO_SECRET_KEY, YOCO_WEBHOOK_SECRET, PAYFAST_MERCHANT_ID, PAYFAST_MERCHANT_KEY, PAYFAST_PASSPHRASE] },
   async (request) => {
     if (!request.auth) {
       throw new HttpsError("unauthenticated", "You must be signed in to enter.");
@@ -84,29 +99,18 @@ export const createEntrySession = onCall(
       throw new HttpsError("failed-precondition", "Entries have closed for this competition.");
     }
 
-    const entryRef = db.collection("entries").doc();
     const paymentRef = db.collection("payments").doc();
     const now = Date.now();
 
-    await entryRef.set({
-      userId,
-      competitionId,
-      referenceNumber: null,
-      status: "pending",
-      entryMethod: "paid",
-      paymentId: paymentRef.id,
-      createdAt: now,
-      paidAt: null,
-    });
-
     await paymentRef.set({
       userId,
-      entryId: entryRef.id,
+      entryId: null,
       competitionId,
       provider: PAYMENT_PROVIDER,
       providerChargeId: null,
       amountCents: competition.entryFeeCents,
       currency: "ZAR",
+      competitionName: competition.name ?? competition.title ?? competition.id,
       status: "initiated",
       webhookVerifiedAt: null,
       createdAt: now,
@@ -121,48 +125,39 @@ export const createEntrySession = onCall(
         amountCents: competition.entryFeeCents,
         currency: "ZAR",
         reference: paymentRef.id,
-        successUrl: `${APP_BASE_URL}/payment-result?entryId=${entryRef.id}`,
-        cancelUrl: `${APP_BASE_URL}/payment-result?entryId=${entryRef.id}&cancelled=1`,
-        failureUrl: `${APP_BASE_URL}/payment-result?entryId=${entryRef.id}&failed=1`,
+        successUrl: `${APP_BASE_URL}/payment-result?paymentId=${paymentRef.id}`,
+        cancelUrl: `${APP_BASE_URL}/payment-result?paymentId=${paymentRef.id}&cancelled=1`,
+        failureUrl: `${APP_BASE_URL}/payment-result?paymentId=${paymentRef.id}&failed=1`,
       });
 
       await paymentRef.update({ providerChargeId: checkout.providerReference });
 
-      return { entryId: entryRef.id, checkoutUrl: checkout.checkoutUrl, formFields: checkout.formFields };
+      return { paymentId: paymentRef.id, checkoutUrl: checkout.checkoutUrl, formFields: checkout.formFields };
     } catch (err) {
       logger.error("Failed to create Yoco checkout", err);
-      await Promise.all([
-        entryRef.update({ status: "failed" }),
-        paymentRef.update({ status: "failed" }),
-      ]);
+      await paymentRef.update({ status: "failed" });
       throw new HttpsError("internal", "Could not start payment. Please try again.");
     }
   }
 );
 
 export const cancelEntryPayment = onCall(
-  { region: FUNCTION_REGION },
+  { region: FUNCTION_REGION, cors: FUNCTION_CORS_ORIGINS },
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "You must be signed in.");
-    const entryId = request.data?.entryId as string | undefined;
-    if (!entryId) throw new HttpsError("invalid-argument", "entryId is required.");
-
-    const entryRef = db.collection("entries").doc(entryId);
-    const entrySnap = await entryRef.get();
-    if (!entrySnap.exists || entrySnap.data()?.userId !== request.auth.uid) {
-      throw new HttpsError("not-found", "Entry not found.");
-    }
-    const paymentId = entrySnap.data()?.paymentId as string | undefined;
-    if (!paymentId) throw new HttpsError("failed-precondition", "Entry has no payment.");
+    const userId = request.auth.uid;
+    const paymentId = request.data?.paymentId as string | undefined;
+    if (!paymentId) throw new HttpsError("invalid-argument", "paymentId is required.");
+    const paymentRef = db.collection("payments").doc(paymentId);
 
     await db.runTransaction(async (transaction) => {
-      const paymentRef = db.collection("payments").doc(paymentId);
       const paymentSnap = await transaction.get(paymentRef);
-      if (!paymentSnap.exists) throw new HttpsError("not-found", "Payment not found.");
+      if (!paymentSnap.exists || paymentSnap.data()?.userId !== userId) {
+        throw new HttpsError("not-found", "Payment not found.");
+      }
       const paymentStatus = paymentSnap.data()?.status;
       if (paymentStatus === "initiated") {
         transaction.update(paymentRef, { status: "cancelled" });
-        transaction.update(entryRef, { status: "cancelled" });
       }
     });
     return { ok: true };
@@ -170,24 +165,20 @@ export const cancelEntryPayment = onCall(
 );
 
 export const failEntryPayment = onCall(
-  { region: FUNCTION_REGION },
+  { region: FUNCTION_REGION, cors: FUNCTION_CORS_ORIGINS },
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "You must be signed in.");
-    const entryId = request.data?.entryId as string | undefined;
-    if (!entryId) throw new HttpsError("invalid-argument", "entryId is required.");
-    const entryRef = db.collection("entries").doc(entryId);
-    const entrySnap = await entryRef.get();
-    if (!entrySnap.exists || entrySnap.data()?.userId !== request.auth.uid) {
-      throw new HttpsError("not-found", "Entry not found.");
-    }
-    const paymentId = entrySnap.data()?.paymentId as string | undefined;
-    if (!paymentId) throw new HttpsError("failed-precondition", "Entry has no payment.");
+    const userId = request.auth.uid;
+    const paymentId = request.data?.paymentId as string | undefined;
+    if (!paymentId) throw new HttpsError("invalid-argument", "paymentId is required.");
+    const paymentRef = db.collection("payments").doc(paymentId);
     await db.runTransaction(async (transaction) => {
-      const paymentRef = db.collection("payments").doc(paymentId);
       const paymentSnap = await transaction.get(paymentRef);
+      if (!paymentSnap.exists || paymentSnap.data()?.userId !== userId) {
+        throw new HttpsError("not-found", "Payment not found.");
+      }
       if (paymentSnap.data()?.status === "initiated") {
         transaction.update(paymentRef, { status: "failed" });
-        transaction.update(entryRef, { status: "failed" });
       }
     });
     return { ok: true };
@@ -264,7 +255,6 @@ export const yocoWebhook = onRequest(
         const current = await transaction.get(paymentDoc.ref);
         if (current.data()?.status === "initiated") {
           transaction.update(paymentDoc.ref, { status: "failed", webhookVerifiedAt: Date.now() });
-          transaction.update(db.collection("entries").doc(payment.entryId), { status: "failed" });
         }
       });
       res.status(200).send("OK");
@@ -288,19 +278,68 @@ export const yocoWebhook = onRequest(
       return;
     }
 
-    const referenceNumber = await generateReferenceNumber();
-    const now = Date.now();
+    let finalized = false;
+    for (let attempt = 0; attempt < 5 && !finalized; attempt += 1) {
+      const uniqueCode = createEntryCode();
+      try {
+        finalized = await db.runTransaction(async (transaction) => {
+          const current = await transaction.get(paymentDoc.ref);
+          if (current.data()?.status !== "initiated") return true;
 
-    await db.runTransaction(async (transaction) => {
-      const current = await transaction.get(paymentDoc.ref);
-      if (current.data()?.status !== "initiated") return;
-      transaction.update(paymentDoc.ref, { status: "succeeded", webhookVerifiedAt: now });
-      transaction.update(db.collection("entries").doc(payment.entryId), {
-        status: "paid",
-        referenceNumber,
-        paidAt: now,
-      });
-    });
+          const entryRef = db.collection("entries").doc();
+          const codeRef = db.collection("entryCodes").doc(uniqueCode);
+          const codeSnap = await transaction.get(codeRef);
+          const userRef = db.collection("users").doc(payment.userId);
+          const userSnap = await transaction.get(userRef);
+          const competitionRef = db.collection("competitions").doc(payment.competitionId);
+          const competitionSnap = await transaction.get(competitionRef);
+
+          if (codeSnap.exists) throw new EntryCodeCollision();
+          const now = Date.now();
+          transaction.create(codeRef, { entryId: entryRef.id, createdAt: now });
+          transaction.create(entryRef, {
+            userId: payment.userId,
+            competitionId: payment.competitionId,
+            competitionName: payment.competitionName ?? payment.competitionId,
+            entryMethod: "paid",
+            status: "paid",
+            paymentId: paymentDoc.id,
+            uniqueCode,
+            referenceNumber: uniqueCode,
+            paymentReference: payment.providerChargeId,
+            amount: payment.amountCents,
+            currency: payment.currency,
+            createdAt: now,
+            paidAt: now,
+          });
+          transaction.update(paymentDoc.ref, {
+            status: "succeeded",
+            entryId: entryRef.id,
+            webhookVerifiedAt: now,
+          });
+
+          if (userSnap.exists) {
+            transaction.update(userRef, {
+              entriesCount: Number(userSnap.data()?.entriesCount ?? 0) + 1,
+              updatedAt: now,
+            });
+          }
+          if (competitionSnap.exists) {
+            transaction.update(competitionRef, {
+              totalEntries: Number(competitionSnap.data()?.totalEntries ?? 0) + 1,
+            });
+          }
+          return true;
+        });
+      } catch (error) {
+        if (!(error instanceof EntryCodeCollision)) throw error;
+      }
+    }
+    if (!finalized) {
+      logger.error("Could not allocate a unique entry code", { paymentId: paymentDoc.id });
+      res.status(500).send("Could not finalize entry");
+      return;
+    }
 
     // TODO: trigger a confirmation email here (e.g. via a transactional
     // email provider) once one is chosen.

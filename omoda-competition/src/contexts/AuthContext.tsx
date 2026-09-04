@@ -16,7 +16,7 @@ interface AuthContextValue {
   appUser: AppUser | null;
   loading: boolean;
   isAdmin: boolean;
-  signUp: (email: string, password: string, displayName: string) => Promise<void>;
+  signUp: (email: string, password: string, firstName: string, lastName: string, phone: string) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
@@ -55,21 +55,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return unsub;
   }, []);
 
-  async function signUp(email: string, password: string, displayName: string) {
+  async function signUp(email: string, password: string, firstName: string, lastName: string, phone: string) {
     const cred = await createUserWithEmailAndPassword(auth, email, password);
+    const displayName = `${firstName} ${lastName}`.trim();
     await updateProfile(cred.user, { displayName });
     const newUser: AppUser = {
       uid: cred.user.uid,
       email,
+      firstName,
+      lastName,
       displayName,
+      phone,
       role: "user", // role is always "user" on client-side creation;
       // promotion to "admin" can only be done by an existing admin via a
       // Cloud Function (see functions/src/admin.ts) — never by the client.
       createdAt: Date.now(),
+      updatedAt: Date.now(),
+      entriesCount: 0,
     };
     await setDoc(doc(db, "users", cred.user.uid), {
       ...newUser,
       createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      entriesCount: 0,
     });
     setAppUser(newUser);
   }
