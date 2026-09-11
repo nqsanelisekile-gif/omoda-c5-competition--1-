@@ -1,9 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { doc, onSnapshot } from "firebase/firestore";
-import { httpsCallable } from "firebase/functions";
-import { db, functions } from "@/firebase/config";
-import { useAuth } from "@/contexts/AuthContext";
+import { db } from "@/firebase/config";
 import type { Entry, Payment } from "@/types";
 
 /**
@@ -20,50 +18,51 @@ export default function PaymentResult() {
   const paymentId = params.get("paymentId");
   const cancelled = params.get("cancelled") === "1";
   const failed = params.get("failed") === "1";
-  const { firebaseUser } = useAuth();
   const [payment, setPayment] = useState<Payment | null>(null);
   const [entry, setEntry] = useState<Entry | null>(null);
   const [waited, setWaited] = useState(false);
+  const [verificationError, setVerificationError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!paymentId) return;
-    if (cancelled && firebaseUser) {
-      const cancelPayment = httpsCallable<{ paymentId: string }, { ok: boolean }>(
-        functions,
-        "cancelEntryPayment"
-      );
-      void cancelPayment({ paymentId });
-    }
-    if (failed && firebaseUser) {
-      const failPayment = httpsCallable<{ paymentId: string }, { ok: boolean }>(
-        functions,
-        "failEntryPayment"
-      );
-      void failPayment({ paymentId });
-    }
+    // Redirect query parameters are only a user-experience hint. They never
+    // update a payment: only the signed Yoco webhook can do that server-side.
     let unsubscribeEntry: () => void = () => undefined;
-    const unsubscribePayment = onSnapshot(doc(db, "payments", paymentId), (snap) => {
-      if (!snap.exists()) return;
-      const nextPayment = { id: snap.id, ...(snap.data() as Omit<Payment, "id">) };
-      setPayment(nextPayment);
-      if (nextPayment.entryId) {
-        unsubscribeEntry();
-        unsubscribeEntry = onSnapshot(doc(db, "entries", nextPayment.entryId), (entrySnap) => {
-          if (entrySnap.exists()) setEntry({ id: entrySnap.id, ...(entrySnap.data() as Omit<Entry, "id">) });
-        });
+    const unsubscribePayment = onSnapshot(
+      doc(db, "payments", paymentId),
+      (snap) => {
+        if (!snap.exists()) return;
+        const nextPayment = { id: snap.id, ...(snap.data() as Omit<Payment, "id">) };
+        setPayment(nextPayment);
+        if (nextPayment.entryId) {
+          unsubscribeEntry();
+          unsubscribeEntry = onSnapshot(doc(db, "entries", nextPayment.entryId), (entrySnap) => {
+            if (entrySnap.exists()) setEntry({ id: entrySnap.id, ...(entrySnap.data() as Omit<Entry, "id">) });
+          });
+        }
+      },
+      (error) => {
+        if (import.meta.env.DEV) console.error("Unable to read payment verification status:", error);
+        setVerificationError("Payment could not be verified. Please contact support.");
       }
-    });
+    );
     const t = setTimeout(() => setWaited(true), 8000);
     return () => {
       unsubscribePayment();
       unsubscribeEntry();
       clearTimeout(t);
     };
-  }, [cancelled, failed, firebaseUser, paymentId]);
+  }, [paymentId]);
 
   return (
     <div className="container-page flex min-h-[70vh] items-center justify-center py-16">
       <div className="panel max-w-lg p-10 text-center">
+        {!paymentId && (
+          <p role="alert" className="text-sm text-ignition">
+            Payment could not be verified. Please contact support.
+          </p>
+        )}
+        {verificationError && <p role="alert" className="text-sm text-ignition">{verificationError}</p>}
         {!payment && (
           <>
             <p className="eyebrow">Confirming Payment</p>
@@ -112,7 +111,7 @@ export default function PaymentResult() {
           </>
         )}
 
-        {payment?.status === "cancelled" && (
+        {(payment?.status === "cancelled" || (payment?.status === "initiated" && cancelled)) && (
           <>
             <p className="eyebrow">Payment Cancelled</p>
             <h1 className="mt-3 text-2xl">Your Entry Was Not Paid</h1>
@@ -135,7 +134,14 @@ export default function PaymentResult() {
           </>
         )}
 
-        {payment?.status === "initiated" && waited && (
+        {payment?.status === "initiated" && failed && (
+          <p className="mt-4 text-sm text-silver">
+            The checkout reported a problem. Payment is still being verified;
+            no entry will be created unless Yoco confirms it.
+          </p>
+        )}
+
+        {payment?.status === "initiated" && waited && !cancelled && !failed && (
           <p className="mt-4 text-sm text-silver">
             Your payment is still being verified. Check{" "}
             <Link to="/account" className="text-ignition underline">My Account</Link> in a

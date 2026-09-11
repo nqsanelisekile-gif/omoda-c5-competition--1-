@@ -13,6 +13,17 @@ interface CreateEntrySessionResponse {
   formFields?: Record<string, string>;
 }
 
+function toUserFacingCallableError(error: unknown, fallback: string) {
+  const code = typeof error === "object" && error !== null && "code" in error
+    ? String(error.code)
+    : "";
+  if (code === "functions/unauthenticated") return "Please sign in before starting payment.";
+  if (code === "functions/not-found") return "There is no active competition available right now.";
+  if (code === "functions/failed-precondition") return "This competition is not currently available for entry.";
+  if (import.meta.env.DEV) console.error("Callable function failed:", error);
+  return fallback;
+}
+
 export default function EnterNow() {
   const { firebaseUser } = useAuth();
   const navigate = useNavigate();
@@ -32,7 +43,7 @@ export default function EnterNow() {
         const result = await getActiveCompetition();
         setCompetition(result.data);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Could not load the active competition.");
+        setError(toUserFacingCallableError(err, "Unable to load the active competition."));
       } finally {
         setLoadingCompetition(false);
       }
@@ -52,11 +63,9 @@ export default function EnterNow() {
     }
     setSubmitting(true);
     try {
-      // This Cloud Function does the following server-side, never client-side:
-      //  1. Creates an /entries doc with status "pending"
-      //  2. Creates a /payments doc with status "initiated"
-      //  3. Calls the PSP (Yoco) to create a hosted checkout session
-      //  4. Returns the checkout URL for redirect
+      // This Cloud Function creates only a pending payment record, calls the
+      // PSP, and returns its hosted checkout URL. The final /entries document
+      // is created only by the verified Yoco webhook.
       // The client NEVER marks the entry/payment as paid — only the PSP's
       // signed webhook (verified in a separate Cloud Function) can do that.
       const createEntrySession = httpsCallable<
@@ -83,7 +92,7 @@ export default function EnterNow() {
         window.location.href = result.data.checkoutUrl;
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not start payment. Please try again.");
+      setError(toUserFacingCallableError(err, "Unable to start payment. Please try again."));
       setSubmitting(false);
     }
   }
@@ -159,7 +168,11 @@ export default function EnterNow() {
             disabled={submitting || loadingCompetition || !competition}
             className="btn-primary w-full"
           >
-            {submitting ? "Redirecting…" : "Pay R100 Securely"}
+            {submitting
+              ? "Redirecting…"
+              : competition
+                ? `Continue to Pay R${(competition.entryFeeCents / 100).toFixed(2)}`
+                : "Continue to Pay"}
           </button>
           <button onClick={() => setStep("eligibility")} className="btn-secondary w-full">
             Back

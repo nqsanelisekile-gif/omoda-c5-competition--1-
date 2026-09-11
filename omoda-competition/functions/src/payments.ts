@@ -35,7 +35,15 @@ const FUNCTION_CORS_ORIGINS = [
 
 export const getActiveCompetition = onCall(
   { region: FUNCTION_REGION, cors: FUNCTION_CORS_ORIGINS },
-  async () => {
+  async (request) => {
+    // This is a Firebase callable endpoint, not a conventional REST endpoint.
+    // The Functions runtime handles OPTIONS and the callable protocol's CORS
+    // response using the explicit allow-list above. Clients must call it with
+    // httpsCallable() rather than fetch().
+    logger.info("getActiveCompetition called", {
+      origin: request.rawRequest.headers.origin ?? null,
+      authenticated: Boolean(request.auth),
+    });
     const snapshot = await db.collection("competitions").get();
     const active = snapshot.docs.find((document) => {
       const data = document.data() as Partial<Competition>;
@@ -46,9 +54,11 @@ export const getActiveCompetition = onCall(
     });
 
     if (!active) {
+      logger.info("getActiveCompetition lookup completed", { activeCompetitionFound: false });
       throw new HttpsError("not-found", "There is no active competition available right now.");
     }
 
+    logger.info("getActiveCompetition lookup completed", { activeCompetitionFound: true });
     return { id: active.id, ...active.data() };
   }
 );
@@ -69,6 +79,10 @@ export const getActiveCompetition = onCall(
 export const createEntrySession = onCall(
   { region: FUNCTION_REGION, cors: FUNCTION_CORS_ORIGINS, secrets: [YOCO_SECRET_KEY, YOCO_WEBHOOK_SECRET, PAYFAST_MERCHANT_ID, PAYFAST_MERCHANT_KEY, PAYFAST_PASSPHRASE] },
   async (request) => {
+    logger.info("createEntrySession called", {
+      origin: request.rawRequest.headers.origin ?? null,
+      authenticated: Boolean(request.auth),
+    });
     if (!request.auth) {
       throw new HttpsError("unauthenticated", "You must be signed in to enter.");
     }
@@ -86,6 +100,7 @@ export const createEntrySession = onCall(
 
     const competitionSnap = await db.collection("competitions").doc(competitionId).get();
     if (!competitionSnap.exists) {
+      logger.info("createEntrySession competition lookup completed", { competitionFound: false });
       throw new HttpsError("not-found", "Competition not found.");
     }
     const competition = competitionSnap.data() as Competition;
@@ -93,11 +108,16 @@ export const createEntrySession = onCall(
       (typeof competition.status === "string" && competition.status.toLowerCase() === "active") ||
       competition.isActive === true;
     if (!competitionIsActive) {
+      logger.info("createEntrySession competition lookup completed", { competitionFound: true, active: false });
       throw new HttpsError("failed-precondition", "This competition is not currently open for entries.");
     }
-    if (Date.now() > competition.closingAt) {
+    if (!Number.isInteger(competition.entryFeeCents) || competition.entryFeeCents <= 0) {
+      throw new HttpsError("failed-precondition", "This competition has an invalid entry price.");
+    }
+    if (!Number.isFinite(competition.closingAt) || Date.now() > competition.closingAt) {
       throw new HttpsError("failed-precondition", "Entries have closed for this competition.");
     }
+    logger.info("createEntrySession competition lookup completed", { competitionFound: true, active: true });
 
     const paymentRef = db.collection("payments").doc();
     const now = Date.now();
@@ -111,6 +131,8 @@ export const createEntrySession = onCall(
       amountCents: competition.entryFeeCents,
       currency: "ZAR",
       competitionName: competition.name ?? competition.title ?? competition.id,
+      // This is deliberately not an /entries document. A final competition
+      // entry exists only after the signed PSP webhook is verified.
       status: "initiated",
       webhookVerifiedAt: null,
       createdAt: now,
@@ -134,7 +156,10 @@ export const createEntrySession = onCall(
 
       return { paymentId: paymentRef.id, checkoutUrl: checkout.checkoutUrl, formFields: checkout.formFields };
     } catch (err) {
-      logger.error("Failed to create Yoco checkout", err);
+      logger.error("Failed to create payment checkout", {
+        provider: PAYMENT_PROVIDER,
+        message: err instanceof Error ? err.message : "Unknown checkout error",
+      });
       await paymentRef.update({ status: "failed" });
       throw new HttpsError("internal", "Could not start payment. Please try again.");
     }
@@ -155,9 +180,10 @@ export const cancelEntryPayment = onCall(
       if (!paymentSnap.exists || paymentSnap.data()?.userId !== userId) {
         throw new HttpsError("not-found", "Payment not found.");
       }
-      const paymentStatus = paymentSnap.data()?.status;
-      if (paymentStatus === "initiated") {
-        transaction.update(paymentRef, { status: "cancelled" });
+      if (paymentSnap.data()?.status === "initiated") {
+        // A browser return URL is advisory, not proof that Yoco cancelled the
+        // checkout. Do not make it terminal: a valid webhook may still arrive.
+        transaction.update(paymentRef, { checkoutReturn: "cancelled", checkoutReturnedAt: Date.now() });
       }
     });
     return { ok: true };
@@ -178,7 +204,8 @@ export const failEntryPayment = onCall(
         throw new HttpsError("not-found", "Payment not found.");
       }
       if (paymentSnap.data()?.status === "initiated") {
-        transaction.update(paymentRef, { status: "failed" });
+        // Only the signed provider webhook may change the authoritative status.
+        transaction.update(paymentRef, { checkoutReturn: "failed", checkoutReturnedAt: Date.now() });
       }
     });
     return { ok: true };
