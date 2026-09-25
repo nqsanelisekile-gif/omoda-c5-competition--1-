@@ -114,9 +114,6 @@ export const createEntrySession = onCall(
     if (!Number.isInteger(competition.entryFeeCents) || competition.entryFeeCents <= 0) {
       throw new HttpsError("failed-precondition", "This competition has an invalid entry price.");
     }
-    if (!Number.isFinite(competition.closingAt) || Date.now() > competition.closingAt) {
-      throw new HttpsError("failed-precondition", "Entries have closed for this competition.");
-    }
     logger.info("createEntrySession competition lookup completed", { competitionFound: true, active: true });
 
     const paymentRef = db.collection("payments").doc();

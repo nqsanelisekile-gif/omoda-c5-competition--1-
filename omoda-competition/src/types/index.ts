@@ -32,7 +32,7 @@ export interface Competition {
   entryPrice?: number;
   currency?: "ZAR" | string;
   startDate?: number;
-  closingAt: number; // epoch ms
+  closingAt?: number; // epoch ms; omitted for competitions with no scheduled closing date
   endDate?: number;
   totalEntries?: number;
   status: CompetitionStatus;

@@ -12,7 +12,7 @@ export interface Competition {
   entryPrice?: number;
   currency?: string;
   startDate?: number;
-  closingAt: number;
+  closingAt?: number;
   endDate?: number;
   totalEntries?: number;
   status: "draft" | "active" | "closed" | "winner_announced";

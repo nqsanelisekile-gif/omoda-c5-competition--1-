@@ -1,8 +1,4 @@
 import { Link } from "react-router-dom";
-import CountdownTimer from "@/components/CountdownTimer";
-
-const CLOSING_AT = new Date(2026, 9, 31, 23, 59, 59).getTime();
-
 const steps = [
   {
     title: "Register",
@@ -29,7 +25,12 @@ export default function CompetitionPage() {
       <h1 className="mt-4 text-4xl md:text-5xl">Win an OMODA C5</h1>
 
       <div className="mt-8 flex flex-wrap items-center gap-6">
-        <CountdownTimer closingAt={CLOSING_AT} />
+        <div className="panel inline-flex items-center gap-2 px-5 py-3">
+          <span className="h-2 w-2 rounded-full bg-ignition" />
+          <span className="font-mono text-sm uppercase tracking-widest2 text-silver">
+            Entries Open
+          </span>
+        </div>
         <Link to="/enter" className="btn-primary">Enter Now — R100</Link>
       </div>
 
@@ -53,7 +54,7 @@ export default function CompetitionPage() {
             </div>
             <div className="flex justify-between border-b border-steel pb-2">
               <dt className="text-silver">Entries Close</dt>
-              <dd className="font-mono">31 Oct 2026</dd>
+              <dd className="font-mono">Open-ended</dd>
             </div>
             <div className="flex justify-between">
               <dt className="text-silver">Winner Announced</dt>

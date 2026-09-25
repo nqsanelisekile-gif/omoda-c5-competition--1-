@@ -54,8 +54,12 @@ export default function AdminCompetitions() {
       entryPrice: Number(form.get("entryFeeCents")) || 10000,
       currency: "ZAR",
       startDate: Date.now(),
-      closingAt: new Date(form.get("closingAt") as string).getTime(),
-      endDate: new Date(form.get("closingAt") as string).getTime(),
+      ...(form.get("closingAt")
+        ? {
+            closingAt: new Date(form.get("closingAt") as string).getTime(),
+            endDate: new Date(form.get("closingAt") as string).getTime(),
+          }
+        : {}),
       totalEntries: 0,
       status: "draft" as CompetitionStatus,
       rulesText: form.get("rulesText"),
@@ -86,7 +90,7 @@ export default function AdminCompetitions() {
           <Input name="carModel" label="Car Model" required defaultValue="OMODA C5" />
           <Textarea name="description" label="Description" required />
           <Input name="entryFeeCents" label="Entry Fee (cents)" type="number" defaultValue={10000} required />
-          <Input name="closingAt" label="Closing Date/Time" type="datetime-local" required />
+          <Input name="closingAt" label="Closing Date/Time (optional)" type="datetime-local" />
           <Textarea name="rulesText" label="Rules Text" required />
           <label className="block">
             <span className="mb-2 block text-xs uppercase tracking-widest2 text-silver">Hero Image</span>
@@ -102,8 +106,9 @@ export default function AdminCompetitions() {
             <div>
               <p className="text-bone">{c.title}</p>
               <p className="text-xs text-silver">
-                {c.carModel} · R{(c.entryFeeCents / 100).toFixed(2)} · closes{" "}
-                {new Date(c.closingAt).toLocaleString("en-ZA")}
+                {c.carModel} · R{(c.entryFeeCents / 100).toFixed(2)} · {c.closingAt
+                  ? `closes ${new Date(c.closingAt).toLocaleString("en-ZA")}`
+                  : "no scheduled closing date"}
               </p>
             </div>
             <div className="flex items-center gap-2">
