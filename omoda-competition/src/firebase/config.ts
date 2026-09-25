@@ -7,14 +7,30 @@ import { getStorage } from "firebase/storage";
 // All values come from environment variables — never hard-code Firebase
 // config in source. Copy .env.example to .env.local and fill in your
 // project's values from the Firebase console.
+const requiredConfig = {
+  VITE_FIREBASE_API_KEY: import.meta.env.VITE_FIREBASE_API_KEY,
+  VITE_FIREBASE_AUTH_DOMAIN: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  VITE_FIREBASE_PROJECT_ID: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  VITE_FIREBASE_STORAGE_BUCKET: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  VITE_FIREBASE_MESSAGING_SENDER_ID: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  VITE_FIREBASE_APP_ID: import.meta.env.VITE_FIREBASE_APP_ID,
+};
+
+const missingConfig = Object.entries(requiredConfig)
+  .filter(([, value]) => !value)
+  .map(([name]) => name);
+
+if (missingConfig.length > 0) {
+  throw new Error(`Missing Firebase configuration: ${missingConfig.join(", ")}`);
+}
+
 const firebaseConfig = {
-  // Keep public pages renderable before `.env.local` is configured.
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "local-preview-key",
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "local-preview.firebaseapp.com",
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "local-preview",
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "local-preview.appspot.com",
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "local-preview-sender",
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || "local-preview-app",
+  apiKey: requiredConfig.VITE_FIREBASE_API_KEY,
+  authDomain: requiredConfig.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: requiredConfig.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: requiredConfig.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: requiredConfig.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: requiredConfig.VITE_FIREBASE_APP_ID,
 };
 
 export const app = initializeApp(firebaseConfig);

@@ -1,4 +1,9 @@
 {
+  "private": true,
+  "scripts": {
+    "build": "npm --prefix omoda-competition run build",
+    "dev": "npm --prefix omoda-competition run dev"
+  },
   "dependencies": {
     "firebase": "^12.18.0"
   }

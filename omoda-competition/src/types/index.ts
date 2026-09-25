@@ -70,7 +70,7 @@ export interface Entry {
   paidAt: number | null;
 }
 
-export type PaymentStatus = "initiated" | "succeeded" | "failed" | "cancelled";
+export type PaymentStatus = "initiated" | "pending" | "succeeded" | "failed" | "cancelled";
 
 export interface Payment {
   id: string;

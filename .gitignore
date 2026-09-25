@@ -1,4 +1,6 @@
 omoda-competition/.env.local
+omoda-competition/functions/.env
+omoda-competition/functions/.env.local
 omoda-competition/node_modules/
 omoda-competition/functions/node_modules/
 omoda-competition/dist/

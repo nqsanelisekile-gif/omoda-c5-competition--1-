@@ -29,7 +29,16 @@ export default function Login() {
       }
       navigate(from, { replace: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
+      const code = typeof err === "object" && err !== null && "code" in err
+        ? String(err.code)
+        : "";
+      if (code === "auth/invalid-credential" || code === "auth/wrong-password" || code === "auth/user-not-found") {
+        setError("Incorrect email or password.");
+      } else if (code === "auth/operation-not-allowed") {
+        setError("Email and password sign-in is not enabled for this Firebase project.");
+      } else {
+        setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
+      }
     } finally {
       setSubmitting(false);
     }

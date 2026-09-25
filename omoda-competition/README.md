@@ -40,17 +40,17 @@ Frontend (Vite/React/TS/Tailwind)
   ├─ Firebase Auth        → email/password sign-up & login
   ├─ Firestore (client)   → reads competitions/entries/payments/faqs/winners
   │                          (rules restrict what it can WRITE — see below)
-  └─ Cloud Functions (callable) → the only way to:
-       • create an entry + start a payment (createEntrySession)
+   ├─ Vercel Serverless Functions → create checkout and process Yoco webhook
+   │    • api/yoco/create-checkout.ts
+   │    • api/yoco/webhook.ts
+   └─ Firebase Cloud Functions → the only way to:
        • change a user's role (setUserRole)
        • record a winner (recordWinner)
 
 Cloud Functions (server, Admin SDK — fully trusted)
-  ├─ createEntrySession   → creates pending entry+payment, opens PSP checkout
-  ├─ yocoWebhook           → PSP → us, HMAC-verified, ONLY place that marks
-  │                          an entry "paid" and issues a reference number
-  ├─ setUserRole           → admin-only, audit-logged
-  └─ recordWinner          → admin-only, validates entry is paid, audit-logged
+   ├─ getActiveCompetition  → reads the active competition for the frontend
+   ├─ setUserRole           → admin-only, audit-logged
+   └─ recordWinner          → admin-only, validates entry is paid, audit-logged
 ```
 
 **The core security principle:** the browser can ask to start a payment and
@@ -79,12 +79,14 @@ src/
   firebase/config.ts
   types/index.ts    Full schema, shared conceptually with functions/
 
-functions/
+   api/yoco/
+      create-checkout.ts     Vercel → Yoco hosted checkout
+      webhook.ts             Yoco → Vercel → Firestore finalization
+      shared.ts              Yoco API and webhook verification helpers
+   functions/
   src/
-    payments.ts        createEntrySession, yocoWebhook
-    adminActions.ts    setUserRole, recordWinner (+ audit logging)
-    providers/         PaymentProvider interface + Yoco implementation
-    referenceNumber.ts Transactional unique reference generator
+      competition.ts     getActiveCompetition
+      adminActions.ts    setUserRole, recordWinner (+ audit logging)
 
 firestore/
   firestore.rules       Security rules (see inline comments — this is the
@@ -115,45 +117,38 @@ firebase init   # select Firestore, Functions, Storage, Hosting
                  # and firestore/storage.rules (already configured in firebase.json)
 ```
 
-### 3. Cloud Functions
+### 3. Vercel payment functions
 
 ```bash
-cd functions
 npm install
-
-# Secrets — never put these in .env files that get committed:
-firebase functions:secrets:set YOCO_SECRET_KEY
-firebase functions:secrets:set YOCO_WEBHOOK_SECRET
-
-# Put these in functions/.env (server-side configuration only)
-APP_BASE_URL=https://your-domain.example
-PAYMENT_PROVIDER=yoco
-
-# PayFast credentials (required when PAYMENT_PROVIDER=payfast)
-firebase functions:secrets:set PAYFAST_MERCHANT_ID
-firebase functions:secrets:set PAYFAST_MERCHANT_KEY
-firebase functions:secrets:set PAYFAST_PASSPHRASE
-
 npm run build
-firebase deploy --only functions
 ```
 
-Set `PAYMENT_PROVIDER=payfast` and `PAYFAST_SANDBOX=true` while testing. Set
-`PAYFAST_NOTIFY_URL` to the deployed `payfastWebhook` URL, then register that
-same URL in the PayFast merchant dashboard. PayFast sends an ITN to this URL;
-the function validates the signature and asks PayFast to validate the full
-notification before updating the entry.
+Deploy the `omoda-competition` directory as a Vercel project. In **Vercel →
+Project → Settings → Environment Variables**, add these for Development,
+Preview, and Production. Do not prefix server values with `VITE_`:
 
-For Yoco deployments, keep `PAYMENT_PROVIDER=yoco` and register the deployed
-`yocoWebhook` function URL in Yoco's Checkout API webhook settings. The
-webhook subscription returns the `whsec_...` secret once; store that value
-with `firebase functions:secrets:set YOCO_WEBHOOK_SECRET`.
+```text
+APP_BASE_URL=https://your-domain.example
+YOCO_SECRET_KEY=...
+YOCO_WEBHOOK_SECRET=...
+FIREBASE_PROJECT_ID=...
+FIREBASE_CLIENT_EMAIL=...
+FIREBASE_PRIVATE_KEY=-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n
+```
 
-The integration uses Yoco's current Checkout API endpoint
-`POST https://payments.yoco.com/api/checkouts`, redirects to its returned
-`redirectUrl`, and verifies webhook signatures using the documented
-`webhook-id`, `webhook-timestamp`, and `webhook-signature` headers. Only the
-verified webhook can mark an entry paid.
+The integration uses Yoco's documented
+`POST https://payments.yoco.com/api/checkouts` endpoint and redirects to its
+returned `redirectUrl`. Register
+`https://YOUR_VERCEL_DOMAIN/api/yoco/webhook` in the Yoco Checkout API webhook
+settings. The webhook verifies the raw-body signature, amount, currency, event
+status, and event ID before marking the existing Firestore entry paid.
+
+The old `functions/src/payments.ts` exports (`createEntrySession`,
+`yocoWebhook`, `payfastWebhook`, and browser-return helpers) are no longer
+exported from `functions/src/index.ts` and should not be deployed. They remain
+in source temporarily for reference and can be removed after confirming no
+legacy Firebase webhook URL is still registered.
 
 ### 4. Deploy rules & hosting
 

@@ -111,7 +111,7 @@ export default function PaymentResult() {
           </>
         )}
 
-        {(payment?.status === "cancelled" || (payment?.status === "initiated" && cancelled)) && (
+        {(payment?.status === "cancelled" || ((payment?.status === "initiated" || payment?.status === "pending") && cancelled)) && (
           <>
             <p className="eyebrow">Payment Cancelled</p>
             <h1 className="mt-3 text-2xl">Your Entry Was Not Paid</h1>
@@ -134,14 +134,14 @@ export default function PaymentResult() {
           </>
         )}
 
-        {payment?.status === "initiated" && failed && (
+        {(payment?.status === "initiated" || payment?.status === "pending") && failed && (
           <p className="mt-4 text-sm text-silver">
             The checkout reported a problem. Payment is still being verified;
             no entry will be created unless Yoco confirms it.
           </p>
         )}
 
-        {payment?.status === "initiated" && waited && !cancelled && !failed && (
+        {(payment?.status === "initiated" || payment?.status === "pending") && waited && !cancelled && !failed && (
           <p className="mt-4 text-sm text-silver">
             Your payment is still being verified. Check{" "}
             <Link to="/account" className="text-ignition underline">My Account</Link> in a

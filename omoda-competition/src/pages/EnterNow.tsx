@@ -68,18 +68,25 @@ export default function EnterNow() {
       // is created only by the verified Yoco webhook.
       // The client NEVER marks the entry/payment as paid — only the PSP's
       // signed webhook (verified in a separate Cloud Function) can do that.
-      const createEntrySession = httpsCallable<
-        { competitionId: string },
-        CreateEntrySessionResponse
-      >(functions, "createEntrySession");
-
-      const result = await createEntrySession({ competitionId: competition.id });
+      const idToken = await firebaseUser.getIdToken();
+      const response = await fetch("/api/yoco/create-checkout", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${idToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ competitionId: competition.id }),
+      });
+      const result = (await response.json()) as CreateEntrySessionResponse & { error?: string };
+      if (!response.ok) {
+        throw new Error(result.error ?? "Unable to start payment.");
+      }
       setStep("redirecting");
-      if (result.data.formFields) {
+      if (result.formFields) {
         const form = document.createElement("form");
         form.method = "POST";
-        form.action = result.data.checkoutUrl;
-        Object.entries(result.data.formFields).forEach(([name, value]) => {
+        form.action = result.checkoutUrl;
+        Object.entries(result.formFields).forEach(([name, value]) => {
           const input = document.createElement("input");
           input.type = "hidden";
           input.name = name;
@@ -89,7 +96,7 @@ export default function EnterNow() {
         document.body.appendChild(form);
         form.submit();
       } else {
-        window.location.href = result.data.checkoutUrl;
+        window.location.href = result.checkoutUrl;
       }
     } catch (err) {
       setError(toUserFacingCallableError(err, "Unable to start payment. Please try again."));

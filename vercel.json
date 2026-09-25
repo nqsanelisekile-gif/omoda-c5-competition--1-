@@ -1,0 +1,7 @@
+{
+  "framework": "vite",
+  "installCommand": "npm install --prefix omoda-competition",
+  "buildCommand": "npm --prefix omoda-competition run build",
+  "outputDirectory": "omoda-competition/dist",
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+}
