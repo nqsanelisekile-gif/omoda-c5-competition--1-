@@ -18,7 +18,7 @@ export const getActiveCompetition = onCall(
       origin: request.rawRequest.headers.origin ?? null,
       authenticated: Boolean(request.auth),
     });
-    const snapshot = await db.collection("competitions").get();
+    const snapshot = await db.collection("competition").get();
     const active = snapshot.docs.find((document) => {
       const data = document.data() as Partial<Competition>;
       return (

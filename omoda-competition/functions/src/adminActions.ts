@@ -95,7 +95,7 @@ export const recordWinner = onCall({ region: FUNCTION_REGION }, async (request) 
     proofOfDrawUrl: proofOfDrawUrl ?? null,
   });
 
-  await db.collection("competitions").doc(competitionId).update({
+  await db.collection("competition").doc(competitionId).update({
     status: "winner_announced",
     updatedAt: Date.now(),
   });

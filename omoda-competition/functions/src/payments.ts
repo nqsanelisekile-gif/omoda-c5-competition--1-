@@ -44,7 +44,7 @@ export const getActiveCompetition = onCall(
       origin: request.rawRequest.headers.origin ?? null,
       authenticated: Boolean(request.auth),
     });
-    const snapshot = await db.collection("competitions").get();
+    const snapshot = await db.collection("competition").get();
     const active = snapshot.docs.find((document) => {
       const data = document.data() as Partial<Competition>;
       return (
@@ -98,7 +98,7 @@ export const createEntrySession = onCall(
       throw new HttpsError("invalid-argument", "competitionId is required.");
     }
 
-    const competitionSnap = await db.collection("competitions").doc(competitionId).get();
+    const competitionSnap = await db.collection("competition").doc(competitionId).get();
     if (!competitionSnap.exists) {
       logger.info("createEntrySession competition lookup completed", { competitionFound: false });
       throw new HttpsError("not-found", "Competition not found.");
@@ -315,7 +315,7 @@ export const yocoWebhook = onRequest(
           const codeSnap = await transaction.get(codeRef);
           const userRef = db.collection("users").doc(payment.userId);
           const userSnap = await transaction.get(userRef);
-          const competitionRef = db.collection("competitions").doc(payment.competitionId);
+          const competitionRef = db.collection("competition").doc(payment.competitionId);
           const competitionSnap = await transaction.get(competitionRef);
 
           if (codeSnap.exists) throw new EntryCodeCollision();

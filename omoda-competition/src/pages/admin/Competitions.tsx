@@ -20,7 +20,7 @@ export default function AdminCompetitions() {
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
-    const q = query(collection(db, "competitions"), orderBy("updatedAt", "desc"));
+    const q = query(collection(db, "competition"), orderBy("updatedAt", "desc"));
     return onSnapshot(q, (snap) =>
       setCompetitions(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Competition, "id">) })))
     );
@@ -43,7 +43,7 @@ export default function AdminCompetitions() {
     // to role == "admin" — see firestore/firestore.rules. This is a
     // legitimate direct client write (unlike payment status) because it's
     // gated purely by role, not by an external system of record.
-    await addDoc(collection(db, "competitions"), {
+    await addDoc(collection(db, "competition"), {
       title: form.get("title"),
       name: form.get("title"),
       description: form.get("description"),

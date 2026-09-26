@@ -41,7 +41,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
   }
 
   try {
-    const competitionSnapshot = await db.collection("competitions").doc(competitionId).get();
+    const competitionSnapshot = await db.collection("competition").doc(competitionId).get();
     if (!competitionSnapshot.exists) {
       error(response, 404, "Competition not found.");
       return;
